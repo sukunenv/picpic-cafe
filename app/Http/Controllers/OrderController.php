@@ -12,15 +12,71 @@ class OrderController extends Controller
 {
     public function index(Request $request)
     {
-        $orders = Order::where('user_id', $request->user()->id)
-                       ->with(['orderItems.menu'])
-                       ->get();
+        $query = Order::with(['orderItems.menu']);
+
+        if ($request->has('status') && $request->status !== 'Semua') {
+            $status = strtolower($request->status);
+            // Map text filters to database values if needed (Lunas -> completed)
+            if ($status === 'lunas') $status = 'completed';
+            $query->where('status', $status);
+        }
+
+        $perPage = $request->get('per_page', 10);
+        $orders = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        
         return response()->json($orders);
     }
 
     public function store(Request $request)
     {
         $user = $request->user();
+        
+        // Handle POS mode (items sent directly)
+        if ($request->has('items')) {
+            $items = $request->items;
+            if (empty($items)) {
+                return response()->json(['message' => 'No items provided'], 400);
+            }
+
+            DB::beginTransaction();
+            try {
+                $subtotal = 0;
+                foreach ($items as $item) {
+                    $subtotal += $item['price'] * $item['quantity'];
+                }
+                $total = $subtotal;
+
+                $order = Order::create([
+                    'user_id' => $user->id,
+                    'order_number' => 'ORD-' . strtoupper(Str::random(10)),
+                    'status' => 'pending',
+                    'subtotal' => $subtotal,
+                    'total' => $total,
+                    'notes' => $request->notes,
+                    'customer_name' => $request->customer_name,
+                    'table_number' => $request->table_number,
+                    'payment_method' => $request->payment_method,
+                ]);
+
+                foreach ($items as $item) {
+                    $order->orderItems()->create([
+                        'menu_id' => $item['menu_id'],
+                        'quantity' => $item['quantity'],
+                        'price' => $item['price'],
+                        'subtotal' => $item['price'] * $item['quantity'],
+                        'notes' => $item['notes'] ?? null,
+                    ]);
+                }
+
+                DB::commit();
+                return response()->json($order->load('orderItems.menu'), 201);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                return response()->json(['message' => 'Failed to create order', 'error' => $e->getMessage()], 500);
+            }
+        }
+
+        // Regular cart-based mode
         $carts = Cart::where('user_id', $user->id)->with('menu')->get();
 
         if ($carts->isEmpty()) {
@@ -34,7 +90,6 @@ class OrderController extends Controller
                 $subtotal += $cart->menu->price * $cart->quantity;
             }
 
-            // Total equals subtotal for now
             $total = $subtotal;
 
             $order = Order::create([
@@ -44,6 +99,8 @@ class OrderController extends Controller
                 'subtotal' => $subtotal,
                 'total' => $total,
                 'notes' => $request->notes,
+                'customer_name' => $user->name, // Default to user name for cart orders
+                'payment_method' => 'cash',     // Default or from request
             ]);
 
             foreach ($carts as $cart) {
@@ -76,6 +133,21 @@ class OrderController extends Controller
         return response()->json($order->load(['orderItems.menu']));
     }
 
-    public function update(Request $request, Order $order) {}
+    public function update(Request $request, $id)
+    {
+        $order = Order::findOrFail($id);
+        
+        $request->validate([
+            'status' => 'required|string|in:pending,completed,cancelled'
+        ]);
+
+        $order->status = $request->status;
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order status updated successfully',
+            'order' => $order->load(['orderItems.menu'])
+        ]);
+    }
     public function destroy(Order $order) {}
 }
