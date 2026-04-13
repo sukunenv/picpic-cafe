@@ -56,7 +56,7 @@ class ResetAdminPasswords extends Command
                 continue;
             }
 
-            $user->password = Hash::make($password);
+            $user->password = $password;
             $user->save();
 
             $this->line("  <fg=green>UPDATED</> {$email} — password reset successfully.");
