@@ -1,10 +1,10 @@
 <?php
-
+ 
 namespace App\Http\Controllers;
-
+ 
 use App\Models\Cart;
 use Illuminate\Http\Request;
-
+ 
 class CartController extends Controller
 {
     public function index(Request $request)
@@ -12,7 +12,7 @@ class CartController extends Controller
         $carts = Cart::where('user_id', $request->user()->id)->with('menu')->get();
         return response()->json($carts);
     }
-
+ 
     public function store(Request $request)
     {
         $request->validate([
@@ -20,11 +20,11 @@ class CartController extends Controller
             'quantity' => 'required|integer|min:1',
             'notes' => 'nullable|string'
         ]);
-
+ 
         $cart = Cart::where('user_id', $request->user()->id)
                     ->where('menu_id', $request->menu_id)
                     ->first();
-
+ 
         if ($cart) {
             $cart->update([
                 'quantity' => $cart->quantity + $request->quantity,
@@ -38,36 +38,41 @@ class CartController extends Controller
                 'notes' => $request->notes
             ]);
         }
-
+ 
         return response()->json($cart->load('menu'), 201);
     }
-
+ 
     public function show(Cart $cart) {}
-
+ 
     public function update(Request $request, Cart $cart)
     {
         if ($cart->user_id !== $request->user()->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-
+ 
         $request->validate([
             'quantity' => 'required|integer|min:1',
             'notes' => 'nullable|string'
         ]);
-
+ 
         $cart->update($request->only('quantity', 'notes'));
-
+ 
         return response()->json($cart->load('menu'));
     }
-
-    public function destroy(Request $request, Cart $cart)
+ 
+    public function destroy(Cart $cart)
     {
-        if ($cart->user_id !== $request->user()->id) {
+        if ($cart->user_id !== auth()->id()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
         $cart->delete();
-
         return response()->json(['message' => 'Item removed from cart']);
+    }
+
+    public function clear(Request $request)
+    {
+        Cart::where('user_id', $request->user()->id)->delete();
+        return response()->json(['message' => 'Cart cleared successfully']);
     }
 }

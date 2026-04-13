@@ -111,4 +111,25 @@ class MenuController extends Controller
             'message' => 'Status updated successfully'
         ]);
     }
+
+    public function byCategory($slug)
+    {
+        try {
+            $menus = Menu::with('category')
+                ->whereHas('category', function ($query) use ($slug) {
+                    $query->where('name', $slug)
+                          ->orWhere('slug', $slug);
+                })
+                ->where('is_available', true)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json($menus);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal memuat menu berdasarkan kategori', 
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

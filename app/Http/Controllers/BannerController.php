@@ -21,7 +21,12 @@ class BannerController extends Controller
     {
         $request->validate([
             'title' => 'required|string|max:255',
-            'image_url' => 'required|url',
+            'subtitle' => 'nullable|string|max:255',
+            'tag' => 'nullable|string|max:255',
+            'image' => 'nullable|string',
+            'gradient_start' => 'nullable|string|max:10',
+            'gradient_end' => 'nullable|string|max:10',
+            'type' => 'nullable|string|in:image,gradient',
             'is_active' => 'boolean'
         ]);
 
@@ -40,7 +45,12 @@ class BannerController extends Controller
         
         $request->validate([
             'title' => 'required|string|max:255',
-            'image_url' => 'required|url',
+            'subtitle' => 'nullable|string|max:255',
+            'tag' => 'nullable|string|max:255',
+            'image' => 'nullable|string',
+            'gradient_start' => 'nullable|string|max:10',
+            'gradient_end' => 'nullable|string|max:10',
+            'type' => 'nullable|string|in:image,gradient',
             'is_active' => 'boolean'
         ]);
 

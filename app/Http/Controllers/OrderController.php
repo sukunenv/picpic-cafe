@@ -12,7 +12,14 @@ class OrderController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
+        
+        // If user is authenticated and not admin, scope to their orders only
         $query = Order::with(['orderItems.menu']);
+
+        if ($user && !$user->is_admin) {
+            $query->where('user_id', $user->id);
+        }
 
         if ($request->has('status') && $request->status !== 'Semua') {
             $status = strtolower($request->status);
@@ -92,15 +99,17 @@ class OrderController extends Controller
 
             $total = $subtotal;
 
+            $status = $request->payment_method === 'cash' ? 'pending' : 'waiting_confirmation';
+
             $order = Order::create([
                 'user_id' => $user->id,
                 'order_number' => 'ORD-' . strtoupper(Str::random(10)),
-                'status' => 'pending',
+                'status' => $status,
                 'subtotal' => $subtotal,
                 'total' => $total,
                 'notes' => $request->notes,
-                'customer_name' => $user->name, // Default to user name for cart orders
-                'payment_method' => 'cash',     // Default or from request
+                'customer_name' => $user->name,
+                'payment_method' => $request->payment_method,
             ]);
 
             foreach ($carts as $cart) {
@@ -126,7 +135,10 @@ class OrderController extends Controller
 
     public function show(Request $request, Order $order)
     {
-        if ($order->user_id !== $request->user()->id) {
+        $user = $request->user();
+
+        // Admin can view any order; customers can only view their own
+        if (!$user->is_admin && $order->user_id !== $user->id) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -141,8 +153,25 @@ class OrderController extends Controller
             'status' => 'required|string|in:pending,completed,cancelled'
         ]);
 
+        $oldStatus = $order->status;
         $order->status = $request->status;
         $order->save();
+
+        // Loyalty Point logic: only when status changes TO completed
+        if ($oldStatus !== 'completed' && $order->status === 'completed' && $order->user) {
+            $value = \App\Models\SystemSetting::where('key', 'point_value')->value('value') ?? 5000;
+            $multiplier = \App\Models\SystemSetting::where('key', 'point_multiplier')->value('value') ?? 10;
+            $months = \App\Models\SystemSetting::where('key', 'point_expiry_months')->value('value') ?? 3;
+            
+            $points = floor($order->total / $value) * $multiplier;
+            
+            if ($points > 0) {
+                $user = $order->user;
+                $user->increment('points', $points);
+                $user->point_expires_at = now()->addMonths((int)$months);
+                $user->save();
+            }
+        }
 
         return response()->json([
             'message' => 'Order status updated successfully',
