@@ -21,6 +21,15 @@ class AuthController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
+            'role' => 'member',
+        ]);
+
+        $months = \App\Models\SystemSetting::where('key', 'point_expiry_months')
+                    ->value('value') ?? 3;
+
+        $user->update([
+            'points' => 50,
+            'point_expires_at' => now()->addMonths((int)$months)
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -44,6 +53,14 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'email' => ['Kredensial tidak valid.'],
             ]);
+        }
+
+        if ($request->header('X-App-Type') === 'admin') {
+            if ($user->role === 'member') {
+                return response()->json([
+                    'message' => 'Akses ditolak. Akun ini bukan akun staff.'
+                ], 403);
+            }
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;

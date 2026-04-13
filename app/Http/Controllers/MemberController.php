@@ -31,7 +31,7 @@ class MemberController extends Controller
     {
         $tierConfig = $this->getTierConfig();
         
-        $query = User::where('is_admin', false);
+        $query = User::where('role', 'member');
 
         if ($request->search) {
             $query->where(function ($q) use ($request) {
@@ -40,26 +40,33 @@ class MemberController extends Controller
             });
         }
 
-        $users = $query->orderBy('created_at', 'desc')->get();
+        if ($request->tier && strtolower($request->tier) !== 'semua') {
+            $tier = strtolower($request->tier);
+            if ($tier === 'gold') {
+                $query->where('points', '>=', $tierConfig['gold_min']);
+            } elseif ($tier === 'silver') {
+                $query->where('points', '>=', $tierConfig['silver_min'])
+                      ->where('points', '<', $tierConfig['gold_min']);
+            } elseif ($tier === 'regular') {
+                $query->where('points', '<', $tierConfig['silver_min']);
+            }
+        }
 
-        // Calculate Tier and filter by tier if requested
-        $members = $users->map(function ($user) use ($tierConfig) {
+        $perPage = $request->get('per_page', 10);
+        $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        // Calculate Tier
+        $paginator->getCollection()->transform(function ($user) use ($tierConfig) {
             $user->tier = $this->getTier($user->points, $tierConfig);
             return $user;
         });
 
-        if ($request->tier && strtolower($request->tier) !== 'semua') {
-            $members = $members->filter(function ($m) use ($request) {
-                return strtolower($m->tier) === strtolower($request->tier);
-            });
-        }
-
-        return response()->json($members->values());
+        return response()->json($paginator);
     }
 
     public function show($id)
     {
-        $user = User::where('is_admin', false)->findOrFail($id);
+        $user = User::where('role', 'member')->findOrFail($id);
         $tierConfig = $this->getTierConfig();
         
         $user->tier = $this->getTier($user->points, $tierConfig);
