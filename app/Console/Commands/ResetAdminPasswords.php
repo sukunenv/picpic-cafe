@@ -23,14 +23,14 @@ class ResetAdminPasswords extends Command
     protected $description = 'Reset passwords for the three core admin accounts';
 
     /**
-     * Accounts to reset: email => plain-text password.
+     * Accounts to reset.
      *
-     * @var array<string, string>
+     * @var array<string>
      */
     private array $accounts = [
-        'admin@picpic.com' => 'picpic123',
-        'owner@picpic.com' => 'picpic123',
-        'kasir@picpic.com' => 'picpic123',
+        'admin@picpic.com',
+        'owner@picpic.com',
+        'kasir@picpic.com',
     ];
 
     /**
@@ -38,10 +38,17 @@ class ResetAdminPasswords extends Command
      */
     public function handle(): int
     {
+        $password = $this->secret('Enter new password for all admin accounts');
+
+        if (empty($password)) {
+            $this->error('Password cannot be empty!');
+            return self::FAILURE;
+        }
+
         $this->info('Resetting admin passwords...');
         $this->newLine();
 
-        foreach ($this->accounts as $email => $password) {
+        foreach ($this->accounts as $email) {
             $user = User::where('email', $email)->first();
 
             if (! $user) {
