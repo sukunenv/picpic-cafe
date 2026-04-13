@@ -14,8 +14,10 @@ use App\Http\Controllers\SettingController;
 
 Route::prefix('v1')->group(function () {
     // Public routes
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::prefix('auth')->group(function () {
+        Route::post('/register', [AuthController::class, 'register']);
+        Route::post('/login', [AuthController::class, 'login']);
+    });
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/menus', [MenuController::class, 'index']);
     Route::get('/menus/category/{slug}', [MenuController::class, 'byCategory']);
