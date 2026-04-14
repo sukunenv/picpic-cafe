@@ -20,6 +20,9 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
+        'https://kedaipicpic.com',
+        'https://www.kedaipicpic.com',
+        'https://admin.kedaipicpic.com',
         'https://picpic-cafe-web.netlify.app',
         'https://picpic-cafe-admin.vercel.app',
         'http://localhost:5173',
