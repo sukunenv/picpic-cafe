@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class CategoryController extends Controller
@@ -17,7 +18,11 @@ class CategoryController extends Controller
             return response()->json($query->get());
         }
         
-        return response()->json($query->where('is_active', true)->get());
+        $categories = Cache::remember('categories_active', 300, function () use ($query) {
+            return $query->where('is_active', true)->get();
+        });
+        
+        return response()->json($categories);
     }
 
     public function store(Request $request)
@@ -31,6 +36,7 @@ class CategoryController extends Controller
         $validated['slug'] = Str::slug($validated['name']);
         
         $category = Category::create($validated);
+        Cache::forget('categories_active');
 
         return response()->json($category, 201);
     }
@@ -53,6 +59,7 @@ class CategoryController extends Controller
         }
 
         $category->update($validated);
+        Cache::forget('categories_active');
 
         return response()->json($category);
     }
@@ -65,6 +72,7 @@ class CategoryController extends Controller
         }
         
         $category->delete();
+        Cache::forget('categories_active');
         return response()->json(['message' => 'Category deleted']);
     }
 }

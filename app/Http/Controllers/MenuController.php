@@ -5,23 +5,34 @@ namespace App\Http\Controllers;
 use App\Models\Menu;
 use App\Models\Category;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class MenuController extends Controller
 {
     public function index(Request $request)
     {
         try {
-            $query = Menu::with('category');
+            // If filters are applied, skip cache
+            if ($request->has('category_id') || $request->has('is_available')) {
+                $query = Menu::with('category');
 
-            if ($request->has('category_id')) {
-                $query->where('category_id', $request->category_id);
+                if ($request->has('category_id')) {
+                    $query->where('category_id', $request->category_id);
+                }
+
+                if ($request->has('is_available')) {
+                    $query->where('is_available', $request->boolean('is_available'));
+                }
+
+                return response()->json($query->orderBy('created_at', 'desc')->get());
             }
 
-            if ($request->has('is_available')) {
-                $query->where('is_available', $request->boolean('is_available'));
-            }
+            // Cache all menus for 5 minutes
+            $menus = Cache::remember('menus_all', 300, function () {
+                return Menu::with('category')->orderBy('created_at', 'desc')->get();
+            });
 
-            return response()->json($query->orderBy('created_at', 'desc')->get());
+            return response()->json($menus);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Gagal mengambil data menu', 
@@ -67,6 +78,7 @@ class MenuController extends Controller
         $data['slug'] = \Illuminate\Support\Str::slug($request->name) . '-' . time();
 
         $menu = Menu::create($data);
+        Cache::forget('menus_all');
         return response()->json($menu, 201);
     }
 
@@ -90,6 +102,7 @@ class MenuController extends Controller
         }
 
         $menu->update($data);
+        Cache::forget('menus_all');
         return response()->json($menu);
     }
 
@@ -97,6 +110,7 @@ class MenuController extends Controller
     {
         $menu = Menu::findOrFail($id);
         $menu->delete();
+        Cache::forget('menus_all');
         return response()->json(['message' => 'Menu deleted successfully']);
     }
 
@@ -105,6 +119,7 @@ class MenuController extends Controller
         $menu = Menu::findOrFail($id);
         $menu->is_available = !$menu->is_available;
         $menu->save();
+        Cache::forget('menus_all');
         
         return response()->json([
             'is_available' => $menu->is_available,

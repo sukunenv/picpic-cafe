@@ -4,12 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Banner;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class BannerController extends Controller
 {
     public function index()
     {
-        return response()->json(Banner::orderBy('created_at', 'desc')->get());
+        $banners = Cache::remember('banners_all', 300, function () {
+            return Banner::orderBy('created_at', 'desc')->get();
+        });
+        return response()->json($banners);
     }
 
     public function publicIndex()
@@ -31,6 +35,7 @@ class BannerController extends Controller
         ]);
 
         $banner = Banner::create($request->all());
+        Cache::forget('banners_all');
         return response()->json($banner, 201);
     }
 
@@ -55,6 +60,7 @@ class BannerController extends Controller
         ]);
 
         $banner->update($request->all());
+        Cache::forget('banners_all');
         return response()->json($banner);
     }
 
@@ -62,6 +68,7 @@ class BannerController extends Controller
     {
         $banner = Banner::findOrFail($id);
         $banner->delete();
+        Cache::forget('banners_all');
         return response()->json(['message' => 'Banner deleted successfully']);
     }
 }
