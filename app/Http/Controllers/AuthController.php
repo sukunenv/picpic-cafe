@@ -32,11 +32,13 @@ class AuthController extends Controller
             'point_expires_at' => now()->addMonths((int)$months)
         ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        $tokenResult = $user->createToken('auth_token', ['*'], now()->addDays(30));
+        $token = $tokenResult->plainTextToken;
 
         return response()->json([
             'user' => $user,
-            'token' => $token
+            'token' => $token,
+            'expires_at' => $tokenResult->accessToken->expires_at
         ], 201);
     }
 
@@ -63,11 +65,18 @@ class AuthController extends Controller
             }
         }
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        if ($user->role === 'member') {
+            // Member: 30 hari
+            $tokenResult = $user->createToken('auth_token', ['*'], now()->addDays(30));
+        } else {
+            // Admin, Owner, Kasir: 8 jam
+            $tokenResult = $user->createToken('auth_token', ['*'], now()->addHours(8));
+        }
 
         return response()->json([
             'user' => $user,
-            'token' => $token
+            'token' => $tokenResult->plainTextToken,
+            'expires_at' => $tokenResult->accessToken->expires_at
         ]);
     }
 
