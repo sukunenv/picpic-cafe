@@ -14,7 +14,7 @@ use App\Http\Controllers\SettingController;
 
 Route::prefix('v1')->group(function () {
     // Public routes
-    Route::prefix('auth')->group(function () {
+    Route::middleware('throttle:5,1')->prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/login', [AuthController::class, 'login']);
     });
