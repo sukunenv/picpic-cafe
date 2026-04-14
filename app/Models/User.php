@@ -28,6 +28,7 @@ class User extends Authenticatable
         'phone',
         'is_admin',
         'role',
+        'card_number',
     ];
 
     /**
@@ -52,5 +53,36 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_admin' => 'boolean',
         ];
+    }
+
+    protected static function booted()
+    {
+        static::created(function ($user) {
+            // Only generate card number for regular members (not admin/cashier/owner)
+            // And only if it doesn't have one yet
+            if (($user->role === 'member' || !$user->role) && !$user->is_admin && !$user->card_number) {
+                $user->card_number = static::generateCardNumber($user);
+                $user->save(['timestamps' => false]);
+            }
+        });
+    }
+
+    public static function generateCardNumber($user)
+    {
+        $prefix = "4231";
+        $date = now()->format('ym'); // 2604
+        
+        // Tier code: bronze=1, silver=2, gold=3
+        $tierCode = "1";
+        $points = $user->points ?? 0;
+        
+        // Get loyalty settings if possible, or use hardcoded thresholds
+        if ($points >= 1501) $tierCode = "3";
+        elseif ($points >= 501) $tierCode = "2";
+
+        $idPart = str_pad($user->id ?? 0, 3, '0', STR_PAD_LEFT);
+        $randomPart = str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+
+        return "{$prefix} {$date} {$tierCode}{$idPart} {$randomPart}";
     }
 }

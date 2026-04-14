@@ -11,12 +11,15 @@ use App\Http\Controllers\BannerController;
 use App\Http\Controllers\MemberController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\Admin\MemberSearchController;
 
 Route::prefix('v1')->group(function () {
     // Public routes
     Route::middleware('throttle:5,1')->prefix('auth')->group(function () {
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/login', [AuthController::class, 'login']);
+        Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
     });
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/menus', [MenuController::class, 'index']);
@@ -62,6 +65,7 @@ Route::prefix('v1')->group(function () {
             
             // Member Management
             Route::get('/members', [MemberController::class, 'index']);
+            Route::get('/members/search', [MemberSearchController::class, 'search']);
             Route::get('/members/{id}', [MemberController::class, 'show']);
             Route::put('/members/{id}/status', [MemberController::class, 'toggleStatus']);
             Route::post('/members/{id}/reset-points', [MemberController::class, 'resetPoints']);

@@ -5,6 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
+use App\Mail\ResetPasswordMail;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -153,5 +158,67 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Akun berhasil dihapus. Sampai jumpa lagi!'
         ]);
+    }
+
+    public function forgotPassword(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'Email tidak terdaftar.'], 404);
+        }
+
+        // Generate token
+        $token = Str::random(64);
+
+        // Store in password_resets table
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $request->email],
+            [
+                'token' => Hash::make($token),
+                'created_at' => now()
+            ]
+        );
+
+        // Send Email
+        Mail::to($request->email)->send(new ResetPasswordMail($token, $request->email, $user->name));
+
+        return response()->json(['message' => 'Link reset password telah dikirim ke email kamu.']);
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'token' => 'required',
+            'email' => 'required|email',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $reset = DB::table('password_reset_tokens')->where('email', $request->email)->first();
+
+        if (!$reset || !Hash::check($request->token, $reset->token)) {
+            return response()->json(['message' => 'Token reset tidak valid atau sudah kedaluwarsa.'], 422);
+        }
+
+        // Check expiry (say 60 minutes)
+        if (now()->parse($reset->created_at)->addMinutes(60)->isPast()) {
+            DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+            return response()->json(['message' => 'Token sudah kedaluwarsa. Silakan minta link baru.'], 422);
+        }
+
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
+
+        // Update Password
+        $user->update(['password' => Hash::make($request->password)]);
+
+        // Delete the token
+        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+
+        return response()->json(['message' => 'Password berhasil diubah. Silakan login kembali.']);
     }
 }
