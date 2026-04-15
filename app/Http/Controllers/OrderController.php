@@ -178,5 +178,4 @@ class OrderController extends Controller
             'order' => $order->load(['orderItems.menu'])
         ]);
     }
-    public function destroy(Order $order) {}
 }

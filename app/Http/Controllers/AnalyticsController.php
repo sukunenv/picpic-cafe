@@ -12,10 +12,6 @@ class AnalyticsController extends Controller
 {
     private function applyPeriodFilter($query, Request $request)
     {
-        // 1. Constrain to operation hours only: 15:00 to 23:59:59 (ignoring morning tests)
-        $query->whereTime('orders.created_at', '>=', '15:00:00')
-              ->whereTime('orders.created_at', '<=', '23:59:59');
-
         $period = $request->get('period', 'Today');
         $now = Carbon::now();
 
@@ -56,8 +52,8 @@ class AnalyticsController extends Controller
         $chartData = [];
 
         if ($period === 'Today') {
-            // Hourly blocks from 15:00 to 23:00
-            for ($h = 15; $h <= 23; $h++) {
+            // Hourly blocks for the full day to catch all orders
+            for ($h = 0; $h <= 23; $h++) {
                 $start = Carbon::today()->setTime($h, 0, 0);
                 $end = Carbon::today()->setTime($h, 59, 59);
 
@@ -73,7 +69,7 @@ class AnalyticsController extends Controller
             // Daily blocks: 7 for Week, 30 for Month
             $days = ($period === 'This Month') ? 29 : 6;
             for ($i = $days; $i >= 0; $i--) {
-                $start = Carbon::today()->subDays($i)->setTime(15, 0, 0);
+                $start = Carbon::today()->subDays($i)->startOfDay();
                 $end = Carbon::today()->subDays($i)->endOfDay();
 
                 $revenue = Order::whereBetween('created_at', [$start, $end])->whereIn('status', $paidStatuses)->sum('total');
@@ -140,11 +136,10 @@ class AnalyticsController extends Controller
             ->orderBy('hour')
             ->get();
 
-        // Limit to operational hours (15 to 23)
         $fullDay = [];
         $existingHours = $peakHours->pluck('orders', 'hour')->toArray();
 
-        for ($h = 15; $h <= 23; $h++) {
+        for ($h = 0; $h <= 23; $h++) {
             $fullDay[] = [
                 'hour' => sprintf('%02d:00', $h),
                 'orders' => $existingHours[$h] ?? 0
@@ -152,5 +147,26 @@ class AnalyticsController extends Controller
         }
 
         return response()->json($fullDay);
+    }
+
+    public function dashboardStats()
+    {
+        $today = Carbon::today();
+
+        $totalOrdersToday = Order::whereDate('created_at', $today)->count();
+        $pendingOrders    = Order::whereDate('created_at', $today)->where('status', 'pending')->count();
+        $todayRevenue     = Order::whereDate('created_at', $today)
+                                ->whereIn('status', ['completed', 'done'])
+                                ->sum('total');
+        $incompleteOrders = Order::whereDate('created_at', $today)
+                                ->whereNotIn('status', ['completed', 'cancelled', 'done'])
+                                ->count();
+
+        return response()->json([
+            'total_orders_today' => $totalOrdersToday,
+            'pending_orders'     => $pendingOrders,
+            'today_revenue'      => (float) $todayRevenue,
+            'incomplete_orders'  => $incompleteOrders,
+        ]);
     }
 }

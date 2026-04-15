@@ -77,8 +77,8 @@ class MemberController extends Controller
 
         $stats = [
             'total_orders' => $orders->count(),
-            'total_spent' => (float)$orders->where('status', 'done')->sum('total_price'),
-            'last_order' => $orders->first() ? $orders->first()->created_at : null,
+            'total_spent'  => (float)$orders->where('status', 'completed')->sum('total'),
+            'last_order'   => $orders->first() ? $orders->first()->created_at : null,
         ];
 
         return response()->json([

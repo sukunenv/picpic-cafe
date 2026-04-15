@@ -42,24 +42,7 @@ class CartController extends Controller
         return response()->json($cart->load('menu'), 201);
     }
  
-    public function show(Cart $cart) {}
- 
-    public function update(Request $request, Cart $cart)
-    {
-        if ($cart->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
- 
-        $request->validate([
-            'quantity' => 'required|integer|min:1',
-            'notes' => 'nullable|string'
-        ]);
- 
-        $cart->update($request->only('quantity', 'notes'));
- 
-        return response()->json($cart->load('menu'));
-    }
- 
+
     public function destroy(Cart $cart)
     {
         if ($cart->user_id !== auth()->id()) {

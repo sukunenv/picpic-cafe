@@ -41,8 +41,8 @@ Route::prefix('v1')->group(function () {
         });
         
         Route::delete('/cart/clear', [CartController::class, 'clear']);
-        Route::apiResource('/cart', CartController::class);
-        Route::apiResource('/orders', OrderController::class);
+        Route::apiResource('/cart', CartController::class)->except(['show', 'update']);
+        Route::apiResource('/orders', OrderController::class)->except(['destroy']);
         Route::apiResource('/categories', CategoryController::class)->except(['index', 'show']);
         Route::apiResource('/menus', MenuController::class)->except(['index', 'show']);
         Route::patch('/menus/{id}/status', [MenuController::class, 'toggleStatus']);
@@ -50,6 +50,7 @@ Route::prefix('v1')->group(function () {
 
         // Analytics
         Route::prefix('analytics')->group(function () {
+            Route::get('/dashboard-stats', [AnalyticsController::class, 'dashboardStats']);
             Route::get('/summary', [AnalyticsController::class, 'summary']);
             Route::get('/chart', [AnalyticsController::class, 'chart']);
             Route::get('/top-menus', [AnalyticsController::class, 'topMenus']);
