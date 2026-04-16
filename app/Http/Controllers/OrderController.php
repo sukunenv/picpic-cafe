@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Cart;
+use App\Models\Menu;
 use App\Models\PointTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -38,8 +39,8 @@ class OrderController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
-        
-        // Handle POS mode (items sent directly)
+
+        // Handle POS mode (items sent directly) - sering dipakai Admin/Kasir
         if ($request->has('items')) {
             $items = $request->items;
             if (empty($items)) {
@@ -49,31 +50,40 @@ class OrderController extends Controller
             DB::beginTransaction();
             try {
                 $subtotal = 0;
+                $processedItems = [];
+
+                // SECURITY: Jangan percaya harga dari frontend. Ambil harga dari Database.
                 foreach ($items as $item) {
-                    $subtotal += $item['price'] * $item['quantity'];
+                    $menu = Menu::findOrFail($item['menu_id']);
+                    $itemPrice = $menu->price;
+                    $itemQty = (int) $item['quantity'];
+                    $itemSubtotal = $itemPrice * $itemQty;
+                    
+                    $subtotal += $itemSubtotal;
+                    
+                    $processedItems[] = [
+                        'menu_id' => $menu->id,
+                        'quantity' => $itemQty,
+                        'price' => $itemPrice,
+                        'subtotal' => $itemSubtotal,
+                        'notes' => $item['notes'] ?? null,
+                    ];
                 }
-                $total = $subtotal;
 
                 $order = Order::create([
-                    'user_id' => $user->id,
+                    'user_id' => $request->user_id ?? $user->id, // Allow setting member ID from POS
                     'order_number' => 'ORD-' . strtoupper(Str::random(10)),
                     'status' => 'pending',
                     'subtotal' => $subtotal,
-                    'total' => $total,
+                    'total' => $subtotal,
                     'notes' => $request->notes,
                     'customer_name' => $request->customer_name,
                     'table_number' => $request->table_number,
                     'payment_method' => $request->payment_method,
                 ]);
 
-                foreach ($items as $item) {
-                    $order->orderItems()->create([
-                        'menu_id' => $item['menu_id'],
-                        'quantity' => $item['quantity'],
-                        'price' => $item['price'],
-                        'subtotal' => $item['price'] * $item['quantity'],
-                        'notes' => $item['notes'] ?? null,
-                    ]);
+                foreach ($processedItems as $pItem) {
+                    $order->orderItems()->create($pItem);
                 }
 
                 DB::commit();
@@ -84,7 +94,7 @@ class OrderController extends Controller
             }
         }
 
-        // Regular cart-based mode
+        // Regular cart-based mode - dipakai Member di Web
         $carts = Cart::where('user_id', $user->id)->with('menu')->get();
 
         if ($carts->isEmpty()) {
@@ -95,10 +105,9 @@ class OrderController extends Controller
         try {
             $subtotal = 0;
             foreach ($carts as $cart) {
+                // SECURITY: Gunakan harga dari model menu yang di-load dari DB, bukan input.
                 $subtotal += $cart->menu->price * $cart->quantity;
             }
-
-            $total = $subtotal;
 
             $status = $request->payment_method === 'cash' ? 'pending' : 'waiting_confirmation';
 
@@ -107,7 +116,7 @@ class OrderController extends Controller
                 'order_number' => 'ORD-' . strtoupper(Str::random(10)),
                 'status' => $status,
                 'subtotal' => $subtotal,
-                'total' => $total,
+                'total' => $subtotal,
                 'notes' => $request->notes,
                 'customer_name' => $user->name,
                 'payment_method' => $request->payment_method,
@@ -126,7 +135,6 @@ class OrderController extends Controller
             Cart::where('user_id', $user->id)->delete();
 
             DB::commit();
-
             return response()->json($order->load('orderItems.menu'), 201);
         } catch (\Exception $e) {
             DB::rollBack();

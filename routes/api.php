@@ -15,11 +15,19 @@ use App\Http\Controllers\Admin\MemberSearchController;
 
 Route::prefix('v1')->group(function () {
     // Public routes
-    Route::middleware('throttle:5,1')->prefix('auth')->group(function () {
-        Route::post('/register', [AuthController::class, 'register']);
-        Route::post('/login', [AuthController::class, 'login']);
-        Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    // Public routes
+    Route::prefix('auth')->group(function () {
+        // Stricter throttle for password recovery to prevent spam
+        Route::middleware('throttle:3,60')->group(function () {
+            Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+            Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+        });
+
+        // Throttle for login/register
+        Route::middleware('throttle:10,1')->group(function () {
+            Route::post('/register', [AuthController::class, 'register']);
+            Route::post('/login', [AuthController::class, 'login']);
+        });
     });
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/menus', [MenuController::class, 'index']);
