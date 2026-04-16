@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Cart;
+use App\Models\PointTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
@@ -148,29 +149,73 @@ class OrderController extends Controller
     public function update(Request $request, $id)
     {
         $order = Order::findOrFail($id);
-        
+
         $request->validate([
             'status' => 'required|string|in:pending,completed,cancelled'
         ]);
 
-        $oldStatus = $order->status;
-        $order->status = $request->status;
-        $order->save();
+        // --- IDEMPOTENT CHECK ---
+        // Jika status yang dikirim sama dengan status sekarang,
+        // langsung return response sukses tanpa proses apapun
+        if ($order->status === $request->status) {
+            return response()->json([
+                'message' => 'Order status sudah ' . $order->status . ', tidak ada perubahan.',
+                'order'   => $order->load(['orderItems.menu']),
+            ]);
+        }
 
-        // Loyalty Point logic: only when status changes TO completed
-        if ($oldStatus !== 'completed' && $order->status === 'completed' && $order->user) {
-            $value = \App\Models\SystemSetting::where('key', 'point_value')->value('value') ?? 5000;
-            $multiplier = \App\Models\SystemSetting::where('key', 'point_multiplier')->value('value') ?? 10;
-            $months = \App\Models\SystemSetting::where('key', 'point_expiry_months')->value('value') ?? 3;
-            
-            $points = floor($order->total / $value) * $multiplier;
-            
-            if ($points > 0) {
-                $user = $order->user;
-                $user->increment('points', $points);
-                $user->point_expires_at = now()->addMonths((int)$months);
-                $user->save();
-            }
+        $oldStatus = $order->status;
+
+        try {
+            DB::transaction(function () use ($request, $order, $oldStatus) {
+                // 1) Update status order
+                $order->status = $request->status;
+                $order->save();
+
+                // 2) Loyalty Point logic — hanya saat status berubah KE completed
+                //    Guard points_awarded mencegah double-add walau request dikirim ulang
+                if (
+                    $oldStatus !== 'completed'
+                    && $order->status === 'completed'
+                    && $order->user
+                    && !$order->points_awarded
+                ) {
+                    $value      = \App\Models\SystemSetting::where('key', 'point_value')->value('value') ?? 5000;
+                    $multiplier = \App\Models\SystemSetting::where('key', 'point_multiplier')->value('value') ?? 10;
+                    $months     = \App\Models\SystemSetting::where('key', 'point_expiry_months')->value('value') ?? 3;
+
+                    $points = (int) floor($order->total / $value) * $multiplier;
+
+                    if ($points > 0) {
+                        $user = $order->user;
+
+                        // 3) Tambah poin member
+                        $user->increment('points', $points);
+                        $user->point_expires_at = now()->addMonths((int) $months);
+                        $user->save();
+
+                        // 4) Tandai order sudah diberi poin (idempotency flag)
+                        $order->points_awarded = true;
+                        $order->saveQuietly();
+
+                        // 5) Catat ke ledger — semua dalam satu transaksi atomik
+                        PointTransaction::record(
+                            userId      : $user->id,
+                            type        : 'earn',
+                            amount      : $points,
+                            balanceAfter: $user->points,
+                            description : 'Poin dari order #' . $order->order_number,
+                            orderId     : $order->id,
+                            performedBy : $request->user()?->id
+                        );
+                    }
+                }
+            });
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal mengupdate status order.',
+                'error'   => $e->getMessage(),
+            ], 500);
         }
 
         return response()->json([

@@ -29,47 +29,57 @@ Route::prefix('v1')->group(function () {
     Route::get('/settings/bank-info', [SettingController::class, 'bankInfo']);
     Route::get('/settings/loyalty', [SettingController::class, 'loyaltyInfo']);
 
-    // Protected routes
+    // Protected routes (semua role yang login)
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/profile', [AuthController::class, 'profile']);
-        
+
+        // Member-specific routes
         Route::prefix('auth')->group(function () {
             Route::put('/profile', [AuthController::class, 'updateProfile']);
             Route::put('/change-password', [AuthController::class, 'changePassword']);
             Route::delete('/account', [AuthController::class, 'deleteAccount']);
         });
-        
+
         Route::delete('/cart/clear', [CartController::class, 'clear']);
         Route::apiResource('/cart', CartController::class)->except(['show', 'update']);
-        Route::apiResource('/orders', OrderController::class)->except(['destroy']);
-        Route::apiResource('/categories', CategoryController::class)->except(['index', 'show']);
-        Route::apiResource('/menus', MenuController::class)->except(['index', 'show']);
-        Route::patch('/menus/{id}/status', [MenuController::class, 'toggleStatus']);
-        Route::apiResource('/banners', BannerController::class)->except(['index', 'show']);
 
-        // Analytics
-        Route::prefix('analytics')->group(function () {
-            Route::get('/dashboard-stats', [AnalyticsController::class, 'dashboardStats']);
-            Route::get('/summary', [AnalyticsController::class, 'summary']);
-            Route::get('/chart', [AnalyticsController::class, 'chart']);
-            Route::get('/top-menus', [AnalyticsController::class, 'topMenus']);
-            Route::get('/payment-methods', [AnalyticsController::class, 'paymentMethods']);
-            Route::get('/peak-hours', [AnalyticsController::class, 'peakHours']);
+        // Orders: semua staff boleh buat order (kasir), tapi hanya via admin app
+        Route::apiResource('/orders', OrderController::class)->except(['destroy']);
+
+        // Staff-only routes (admin, owner, kasir)
+        Route::middleware('role:admin,owner,kasir')->group(function () {
+            Route::apiResource('/categories', CategoryController::class)->except(['index', 'show']);
+            Route::apiResource('/menus', MenuController::class)->except(['index', 'show']);
+            Route::patch('/menus/{id}/status', [MenuController::class, 'toggleStatus']);
+            Route::apiResource('/banners', BannerController::class)->except(['index', 'show']);
         });
 
-        // Admin Settings
-        Route::prefix('admin')->group(function () {
-            Route::get('/settings', [SettingController::class, 'index']);
-            Route::put('/settings/{key}', [SettingController::class, 'update']);
-            Route::post('/settings/reset-points', [SettingController::class, 'resetPoints']);
-            
-            // Member Management
-            Route::get('/members', [MemberController::class, 'index']);
-            Route::get('/members/search', [MemberSearchController::class, 'search']);
-            Route::get('/members/{id}', [MemberController::class, 'show']);
-            Route::put('/members/{id}/status', [MemberController::class, 'toggleStatus']);
-            Route::post('/members/{id}/reset-points', [MemberController::class, 'resetPoints']);
+        // Admin & Owner only routes
+        Route::middleware('role:admin,owner')->group(function () {
+            // Analytics
+            Route::prefix('analytics')->group(function () {
+                Route::get('/dashboard-stats', [AnalyticsController::class, 'dashboardStats']);
+                Route::get('/summary', [AnalyticsController::class, 'summary']);
+                Route::get('/chart', [AnalyticsController::class, 'chart']);
+                Route::get('/top-menus', [AnalyticsController::class, 'topMenus']);
+                Route::get('/payment-methods', [AnalyticsController::class, 'paymentMethods']);
+                Route::get('/peak-hours', [AnalyticsController::class, 'peakHours']);
+            });
+
+            // Admin Panel
+            Route::prefix('admin')->group(function () {
+                Route::get('/settings', [SettingController::class, 'index']);
+                Route::put('/settings/{key}', [SettingController::class, 'update']);
+                Route::post('/settings/reset-points', [SettingController::class, 'resetPoints']);
+
+                // Member Management
+                Route::get('/members', [MemberController::class, 'index']);
+                Route::get('/members/search', [MemberSearchController::class, 'search']);
+                Route::get('/members/{id}', [MemberController::class, 'show']);
+                Route::put('/members/{id}/status', [MemberController::class, 'toggleStatus']);
+                Route::post('/members/{id}/reset-points', [MemberController::class, 'resetPoints']);
+            });
         });
     });
 });

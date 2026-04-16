@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Order;
+use App\Models\PointTransaction;
 use App\Models\SystemSetting;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
@@ -106,15 +107,28 @@ class MemberController extends Controller
         ]);
     }
 
-    public function resetPoints($id)
+    public function resetPoints(Request $request, $id)
     {
         $user = User::findOrFail($id);
+        $oldPoints = $user->points;
+
         $user->points = 0;
         $user->save();
 
+        // Catat ke ledger
+        PointTransaction::record(
+            userId     : $user->id,
+            type       : 'reset',
+            amount     : -$oldPoints,
+            balanceAfter: 0,
+            description: 'Reset poin oleh admin (dari ' . $oldPoints . ' poin)',
+            orderId    : null,
+            performedBy: $request->user()?->id
+        );
+
         return response()->json([
             'message' => 'Poin member berhasil direset menjadi 0.',
-            'points' => 0
+            'points'  => 0
         ]);
     }
 }
