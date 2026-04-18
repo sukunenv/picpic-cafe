@@ -25,4 +25,9 @@ class Menu extends Model
     {
         return $this->hasMany(Cart::class);
     }
+
+    public function variants()
+    {
+        return $this->hasMany(MenuVariant::class);
+    }
 }

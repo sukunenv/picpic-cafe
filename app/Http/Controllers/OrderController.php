@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\Cart;
 use App\Models\Menu;
+use App\Models\MenuVariant;
 use App\Models\PointTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -15,9 +16,9 @@ class OrderController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        
+
         // If user is authenticated and not admin, scope to their orders only
-        $query = Order::with(['orderItems.menu']);
+        $query = Order::with(['orderItems.menu', 'orderItems.variant']);
 
         if ($user && !$user->is_admin) {
             $query->where('user_id', $user->id);
@@ -31,8 +32,8 @@ class OrderController extends Controller
         }
 
         $perPage = $request->get('per_page', 10);
-        $orders = $query->orderBy('created_at', 'desc')->paginate($perPage);
-        
+        $orders  = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
         return response()->json($orders);
     }
 
@@ -49,36 +50,54 @@ class OrderController extends Controller
 
             DB::beginTransaction();
             try {
-                $subtotal = 0;
+                $subtotal       = 0;
                 $processedItems = [];
 
                 // SECURITY: Jangan percaya harga dari frontend. Ambil harga dari Database.
                 foreach ($items as $item) {
                     $menu = Menu::findOrFail($item['menu_id']);
-                    $itemPrice = $menu->price;
-                    $itemQty = (int) $item['quantity'];
+
+                    // Jika menu punya varian, variant_id wajib ada
+                    if ($menu->variants()->exists()) {
+                        if (empty($item['variant_id'])) {
+                            DB::rollBack();
+                            return response()->json([
+                                'message' => "Menu \"{$menu->name}\" memiliki varian. Harap pilih varian terlebih dahulu.",
+                            ], 422);
+                        }
+
+                        $variant = MenuVariant::where('id', $item['variant_id'])
+                                              ->where('menu_id', $menu->id)
+                                              ->firstOrFail();
+
+                        $itemPrice = $variant->price;
+                    } else {
+                        $itemPrice = $menu->price;
+                    }
+
+                    $itemQty      = (int) $item['quantity'];
                     $itemSubtotal = $itemPrice * $itemQty;
-                    
-                    $subtotal += $itemSubtotal;
-                    
+                    $subtotal    += $itemSubtotal;
+
                     $processedItems[] = [
-                        'menu_id' => $menu->id,
-                        'quantity' => $itemQty,
-                        'price' => $itemPrice,
-                        'subtotal' => $itemSubtotal,
-                        'notes' => $item['notes'] ?? null,
+                        'menu_id'    => $menu->id,
+                        'variant_id' => $item['variant_id'] ?? null,
+                        'quantity'   => $itemQty,
+                        'price'      => $itemPrice,
+                        'subtotal'   => $itemSubtotal,
+                        'notes'      => $item['notes'] ?? null,
                     ];
                 }
 
                 $order = Order::create([
-                    'user_id' => $request->user_id ?? $user->id, // Allow setting member ID from POS
-                    'order_number' => 'ORD-' . strtoupper(Str::random(10)),
-                    'status' => 'pending',
-                    'subtotal' => $subtotal,
-                    'total' => $subtotal,
-                    'notes' => $request->notes,
-                    'customer_name' => $request->customer_name,
-                    'table_number' => $request->table_number,
+                    'user_id'        => $request->user_id ?? $user->id,
+                    'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
+                    'status'         => 'pending',
+                    'subtotal'       => $subtotal,
+                    'total'          => $subtotal,
+                    'notes'          => $request->notes,
+                    'customer_name'  => $request->customer_name,
+                    'table_number'   => $request->table_number,
                     'payment_method' => $request->payment_method,
                 ]);
 
@@ -87,7 +106,7 @@ class OrderController extends Controller
                 }
 
                 DB::commit();
-                return response()->json($order->load('orderItems.menu'), 201);
+                return response()->json($order->load('orderItems.menu', 'orderItems.variant'), 201);
             } catch (\Exception $e) {
                 DB::rollBack();
                 return response()->json(['message' => 'Failed to create order', 'error' => $e->getMessage()], 500);
@@ -95,7 +114,7 @@ class OrderController extends Controller
         }
 
         // Regular cart-based mode - dipakai Member di Web
-        $carts = Cart::where('user_id', $user->id)->with('menu')->get();
+        $carts = Cart::where('user_id', $user->id)->with(['menu', 'menu.variants', 'variant'])->get();
 
         if ($carts->isEmpty()) {
             return response()->json(['message' => 'Cart is empty'], 400);
@@ -105,37 +124,50 @@ class OrderController extends Controller
         try {
             $subtotal = 0;
             foreach ($carts as $cart) {
-                // SECURITY: Gunakan harga dari model menu yang di-load dari DB, bukan input.
-                $subtotal += $cart->menu->price * $cart->quantity;
+                // SECURITY: Gunakan harga dari model yang di-load dari DB, bukan input.
+                // Jika cart punya variant, ambil harga dari variant. Jika tidak, dari menu.
+                if ($cart->variant_id && $cart->variant) {
+                    $itemPrice = $cart->variant->price;
+                } else {
+                    $itemPrice = $cart->menu->price;
+                }
+                $subtotal += $itemPrice * $cart->quantity;
             }
 
             $status = $request->payment_method === 'cash' ? 'pending' : 'waiting_confirmation';
 
             $order = Order::create([
-                'user_id' => $user->id,
-                'order_number' => 'ORD-' . strtoupper(Str::random(10)),
-                'status' => $status,
-                'subtotal' => $subtotal,
-                'total' => $subtotal,
-                'notes' => $request->notes,
-                'customer_name' => $user->name,
+                'user_id'        => $user->id,
+                'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
+                'status'         => $status,
+                'subtotal'       => $subtotal,
+                'total'          => $subtotal,
+                'notes'          => $request->notes,
+                'customer_name'  => $user->name,
                 'payment_method' => $request->payment_method,
             ]);
 
             foreach ($carts as $cart) {
+                if ($cart->variant_id && $cart->variant) {
+                    $itemPrice = $cart->variant->price;
+                } else {
+                    $itemPrice = $cart->menu->price;
+                }
+
                 $order->orderItems()->create([
-                    'menu_id' => $cart->menu_id,
-                    'quantity' => $cart->quantity,
-                    'price' => $cart->menu->price,
-                    'subtotal' => $cart->menu->price * $cart->quantity,
-                    'notes' => $cart->notes,
+                    'menu_id'    => $cart->menu_id,
+                    'variant_id' => $cart->variant_id,
+                    'quantity'   => $cart->quantity,
+                    'price'      => $itemPrice,
+                    'subtotal'   => $itemPrice * $cart->quantity,
+                    'notes'      => $cart->notes,
                 ]);
             }
 
             Cart::where('user_id', $user->id)->delete();
 
             DB::commit();
-            return response()->json($order->load('orderItems.menu'), 201);
+            return response()->json($order->load('orderItems.menu', 'orderItems.variant'), 201);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to create order', 'error' => $e->getMessage()], 500);
@@ -151,7 +183,7 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return response()->json($order->load(['orderItems.menu']));
+        return response()->json($order->load(['orderItems.menu', 'orderItems.variant']));
     }
 
     public function update(Request $request, $id)
@@ -168,7 +200,7 @@ class OrderController extends Controller
         if ($order->status === $request->status) {
             return response()->json([
                 'message' => 'Order status sudah ' . $order->status . ', tidak ada perubahan.',
-                'order'   => $order->load(['orderItems.menu']),
+                'order'   => $order->load(['orderItems.menu', 'orderItems.variant']),
             ]);
         }
 
@@ -214,7 +246,7 @@ class OrderController extends Controller
                             balanceAfter: $user->points,
                             description : 'Poin dari order #' . $order->order_number,
                             orderId     : $order->id,
-                            performedBy : $request->user()?->id
+                            performedBy : request()->user()?->id
                         );
                     }
                 }
@@ -228,7 +260,7 @@ class OrderController extends Controller
 
         return response()->json([
             'message' => 'Order status updated successfully',
-            'order' => $order->load(['orderItems.menu'])
+            'order'   => $order->load(['orderItems.menu', 'orderItems.variant'])
         ]);
     }
 }

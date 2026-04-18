@@ -14,7 +14,7 @@ class MenuController extends Controller
         try {
             // If filters are applied, skip cache
             if ($request->has('category_id') || $request->has('is_available')) {
-                $query = Menu::with('category');
+                $query = Menu::with(['category', 'variants']);
 
                 if ($request->has('category_id')) {
                     $query->where('category_id', $request->category_id);
@@ -29,14 +29,14 @@ class MenuController extends Controller
 
             // Cache all menus for 5 minutes
             $menus = Cache::remember('menus_all', 300, function () {
-                return Menu::with('category')->orderBy('created_at', 'desc')->get();
+                return Menu::with(['category', 'variants'])->orderBy('created_at', 'desc')->get();
             });
 
             return response()->json($menus);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Gagal mengambil data menu', 
-                'error' => $e->getMessage()
+                'message' => 'Gagal mengambil data menu',
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
@@ -44,10 +44,10 @@ class MenuController extends Controller
     public function show($id)
     {
         try {
-            $menu = Menu::with('category')->where('id', $id)->first();
-            
+            $menu = Menu::with(['category', 'variants'])->where('id', $id)->first();
+
             if (!$menu && !is_numeric($id)) {
-                $menu = Menu::with('category')->where('slug', $id)->first();
+                $menu = Menu::with(['category', 'variants'])->where('slug', $id)->first();
             }
 
             if (!$menu) {
@@ -57,8 +57,8 @@ class MenuController extends Controller
             return response()->json(['data' => $menu]);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Terjadi kesalahan sistem saat memuat menu', 
-                'error' => $e->getMessage()
+                'message' => 'Terjadi kesalahan sistem saat memuat menu',
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
@@ -66,20 +66,40 @@ class MenuController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'category_id' => 'required|exists:categories,id',
-            'name' => 'required|string|max:255',
-            'price' => 'required|numeric|min:0',
-            'description' => 'nullable|string',
-            'image' => 'nullable|string',
-            'is_available' => 'boolean'
+            'category_id'          => 'required|exists:categories,id',
+            'name'                 => 'required|string|max:255',
+            'price'                => 'required|numeric|min:0',
+            'description'          => 'nullable|string',
+            'image'                => 'nullable|string',
+            'is_available'         => 'boolean',
+            // variants bersifat opsional
+            'variants'             => 'nullable|array',
+            'variants.*.name'      => 'required_with:variants|string|max:255',
+            'variants.*.price'     => 'required_with:variants|numeric|min:0',
+            'variants.*.is_available' => 'boolean',
         ]);
 
-        $data = $request->only(['category_id', 'name', 'price', 'description', 'image', 'is_available']);
-        $data['slug'] = \Illuminate\Support\Str::slug($request->name) . '-' . time();
+        $hasVariants = $request->filled('variants') && count($request->variants) > 0;
+
+        $data          = $request->only(['category_id', 'name', 'description', 'image', 'is_available']);
+        $data['slug']  = \Illuminate\Support\Str::slug($request->name) . '-' . time();
+        // Jika punya varian, price menu = 0 (harga ditentukan per varian)
+        $data['price'] = $hasVariants ? 0 : $request->price;
 
         $menu = Menu::create($data);
+
+        if ($hasVariants) {
+            foreach ($request->variants as $variant) {
+                $menu->variants()->create([
+                    'name'         => $variant['name'],
+                    'price'        => $variant['price'],
+                    'is_available' => $variant['is_available'] ?? 1,
+                ]);
+            }
+        }
+
         Cache::forget('menus_all');
-        return response()->json($menu, 201);
+        return response()->json($menu->load('variants'), 201);
     }
 
     public function update(Request $request, $id)
@@ -87,23 +107,48 @@ class MenuController extends Controller
         $menu = Menu::findOrFail($id);
 
         $request->validate([
-            'category_id' => 'required|exists:categories,id',
-            'name' => 'required|string|max:255',
-            'price' => 'required|numeric|min:0',
-            'description' => 'nullable|string',
-            'image' => 'nullable|string',
-            'is_available' => 'boolean'
+            'category_id'             => 'required|exists:categories,id',
+            'name'                    => 'required|string|max:255',
+            'price'                   => 'required|numeric|min:0',
+            'description'             => 'nullable|string',
+            'image'                   => 'nullable|string',
+            'is_available'            => 'boolean',
+            // variants bersifat opsional; jika dikirim, akan di-sync
+            'variants'                => 'nullable|array',
+            'variants.*.name'         => 'required_with:variants|string|max:255',
+            'variants.*.price'        => 'required_with:variants|numeric|min:0',
+            'variants.*.is_available' => 'boolean',
         ]);
 
-        $data = $request->only(['category_id', 'name', 'price', 'description', 'image', 'is_available']);
-        
+        $hasVariants = $request->filled('variants') && count($request->variants) > 0;
+
+        $data          = $request->only(['category_id', 'name', 'description', 'image', 'is_available']);
+        $data['price'] = $hasVariants ? 0 : $request->price;
+
         if ($request->name !== $menu->name) {
             $data['slug'] = \Illuminate\Support\Str::slug($request->name) . '-' . time();
         }
 
         $menu->update($data);
+
+        // Sync variants jika dikirim dalam request
+        if ($request->has('variants')) {
+            // Hapus semua varian lama, ganti dengan yang baru
+            $menu->variants()->delete();
+
+            if ($hasVariants) {
+                foreach ($request->variants as $variant) {
+                    $menu->variants()->create([
+                        'name'         => $variant['name'],
+                        'price'        => $variant['price'],
+                        'is_available' => $variant['is_available'] ?? 1,
+                    ]);
+                }
+            }
+        }
+
         Cache::forget('menus_all');
-        return response()->json($menu);
+        return response()->json($menu->load('variants'));
     }
 
     public function destroy($id)
@@ -120,17 +165,17 @@ class MenuController extends Controller
         $menu->is_available = !$menu->is_available;
         $menu->save();
         Cache::forget('menus_all');
-        
+
         return response()->json([
             'is_available' => $menu->is_available,
-            'message' => 'Status updated successfully'
+            'message'      => 'Status updated successfully'
         ]);
     }
 
     public function byCategory($slug)
     {
         try {
-            $menus = Menu::with('category')
+            $menus = Menu::with(['category', 'variants'])
                 ->whereHas('category', function ($query) use ($slug) {
                     $query->where('name', $slug)
                           ->orWhere('slug', $slug);
@@ -142,8 +187,8 @@ class MenuController extends Controller
             return response()->json($menus);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Gagal memuat menu berdasarkan kategori', 
-                'error' => $e->getMessage()
+                'message' => 'Gagal memuat menu berdasarkan kategori',
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
