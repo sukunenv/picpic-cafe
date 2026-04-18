@@ -31,6 +31,7 @@ Route::prefix('v1')->group(function () {
     });
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/menus', [MenuController::class, 'index']);
+    Route::get('/menus/featured', [MenuController::class, 'featured']);
     Route::get('/menus/category/{slug}', [MenuController::class, 'byCategory']);
     Route::get('/menus/{id}', [MenuController::class, 'show']);
     Route::get('/banners', [BannerController::class, 'index']);

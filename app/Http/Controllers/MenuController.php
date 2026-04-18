@@ -41,6 +41,24 @@ class MenuController extends Controller
         }
     }
 
+    public function featured()
+    {
+        try {
+            $menus = Menu::with(['category', 'variants'])
+                ->where('is_featured', 1)
+                ->where('is_available', 1)
+                ->whereNull('deleted_at')
+                ->get();
+
+            return response()->json($menus);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Gagal mengambil menu populer',
+                'error'   => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function show($id)
     {
         try {
@@ -72,6 +90,7 @@ class MenuController extends Controller
             'description'          => 'nullable|string',
             'image'                => 'nullable|string',
             'is_available'         => 'boolean',
+            'is_featured'          => 'boolean',
             // variants bersifat opsional
             'variants'             => 'nullable|array',
             'variants.*.name'      => 'required_with:variants|string|max:255',
@@ -81,7 +100,7 @@ class MenuController extends Controller
 
         $hasVariants = $request->filled('variants') && count($request->variants) > 0;
 
-        $data          = $request->only(['category_id', 'name', 'description', 'image', 'is_available']);
+        $data          = $request->only(['category_id', 'name', 'description', 'image', 'is_available', 'is_featured']);
         $data['slug']  = \Illuminate\Support\Str::slug($request->name) . '-' . time();
         // Jika punya varian, price menu = 0 (harga ditentukan per varian)
         $data['price'] = $hasVariants ? 0 : $request->price;
@@ -113,6 +132,7 @@ class MenuController extends Controller
             'description'             => 'nullable|string',
             'image'                   => 'nullable|string',
             'is_available'            => 'boolean',
+            'is_featured'             => 'boolean',
             // variants bersifat opsional; jika dikirim, akan di-sync
             'variants'                => 'nullable|array',
             'variants.*.name'         => 'required_with:variants|string|max:255',
@@ -122,7 +142,7 @@ class MenuController extends Controller
 
         $hasVariants = $request->filled('variants') && count($request->variants) > 0;
 
-        $data          = $request->only(['category_id', 'name', 'description', 'image', 'is_available']);
+        $data          = $request->only(['category_id', 'name', 'description', 'image', 'is_available', 'is_featured']);
         $data['price'] = $hasVariants ? 0 : $request->price;
 
         if ($request->name !== $menu->name) {
