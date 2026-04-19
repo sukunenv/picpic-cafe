@@ -18,7 +18,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         // If user is authenticated and not admin, scope to their orders only
-        $query = Order::with(['orderItems.menu.category', 'orderItems.variant']);
+        $query = Order::with(['orderItems.menu.category', 'orderItems.variant', 'user']);
 
         if ($user && !$user->is_admin) {
             $query->where('user_id', $user->id);
@@ -108,7 +108,7 @@ class OrderController extends Controller
                 $order = Order::create([
                     'user_id'        => $request->user_id ?? $user->id,
                     'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
-                    'status'         => 'pending',
+                    'status'         => 'completed', // POS is directly completed
                     'subtotal'       => $subtotal,
                     'discount_amount' => $discountAmount,
                     'discount_percent' => $discountPercent,
@@ -121,6 +121,35 @@ class OrderController extends Controller
 
                 foreach ($processedItems as $pItem) {
                     $order->orderItems()->create($pItem);
+                }
+
+                // Loyalty Point logic for POS
+                if ($order->user && !$order->points_awarded) {
+                    $valSetting = \App\Models\SystemSetting::where('key', 'point_value')->value('value') ?? 5000;
+                    $mulSetting = \App\Models\SystemSetting::where('key', 'point_multiplier')->value('value') ?? 10;
+                    $expSetting = \App\Models\SystemSetting::where('key', 'point_expiry_months')->value('value') ?? 3;
+
+                    $pts = (int) floor($order->total / $valSetting) * $mulSetting;
+
+                    if ($pts > 0) {
+                        $member = $order->user;
+                        $member->increment('points', $pts);
+                        $member->point_expires_at = now()->addMonths((int) $expSetting);
+                        $member->save();
+
+                        $order->points_awarded = true;
+                        $order->saveQuietly();
+
+                        PointTransaction::record(
+                            userId      : $member->id,
+                            type        : 'earn',
+                            amount      : $pts,
+                            balanceAfter: $member->points,
+                            description : 'Poin dari order #' . $order->order_number . ' (POS)',
+                            orderId     : $order->id,
+                            performedBy : $user->id
+                        );
+                    }
                 }
 
                 DB::commit();
@@ -216,7 +245,7 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return response()->json($order->load(['orderItems.menu.category', 'orderItems.variant']));
+        return response()->json($order->load(['orderItems.menu.category', 'orderItems.variant', 'user']));
     }
 
     public function update(Request $request, $id)
