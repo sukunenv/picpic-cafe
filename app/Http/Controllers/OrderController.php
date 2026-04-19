@@ -18,7 +18,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         // If user is authenticated and not admin, scope to their orders only
-        $query = Order::with(['orderItems.menu', 'orderItems.variant']);
+        $query = Order::with(['orderItems.menu.category', 'orderItems.variant']);
 
         if ($user && !$user->is_admin) {
             $query->where('user_id', $user->id);
@@ -89,12 +89,30 @@ class OrderController extends Controller
                     ];
                 }
 
+                $softOpeningStart = '2026-04-19';
+                $softOpeningEnd   = '2026-04-24';
+                $today = now()->toDateString();
+                $isSoftOpeningRange = ($today >= $softOpeningStart && $today <= $softOpeningEnd);
+
+                // If Kasir sends is_soft_opening=false explicitly, we can override, but default is auto
+                $applyDiscount = $request->get('is_soft_opening', $isSoftOpeningRange);
+
+                $discountAmount = 0;
+                $discountPercent = 0;
+                if ($applyDiscount) {
+                    $discountPercent = 25;
+                    $discountAmount = $subtotal * 0.25;
+                }
+                $total = $subtotal - $discountAmount;
+
                 $order = Order::create([
                     'user_id'        => $request->user_id ?? $user->id,
                     'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
                     'status'         => 'pending',
                     'subtotal'       => $subtotal,
-                    'total'          => $subtotal,
+                    'discount_amount' => $discountAmount,
+                    'discount_percent' => $discountPercent,
+                    'total'          => $total,
                     'notes'          => $request->notes,
                     'customer_name'  => $request->customer_name,
                     'table_number'   => $request->table_number,
@@ -106,7 +124,7 @@ class OrderController extends Controller
                 }
 
                 DB::commit();
-                return response()->json($order->load('orderItems.menu', 'orderItems.variant'), 201);
+                return response()->json($order->load('orderItems.menu.category', 'orderItems.variant'), 201);
             } catch (\Exception $e) {
                 DB::rollBack();
                 return response()->json(['message' => 'Failed to create order', 'error' => $e->getMessage()], 500);
@@ -134,6 +152,19 @@ class OrderController extends Controller
                 $subtotal += $itemPrice * $cart->quantity;
             }
 
+            $softOpeningStart = '2026-04-19';
+            $softOpeningEnd   = '2026-04-24';
+            $today = now()->toDateString();
+            $isSoftOpeningRange = ($today >= $softOpeningStart && $today <= $softOpeningEnd);
+
+            $discountAmount = 0;
+            $discountPercent = 0;
+            if ($isSoftOpeningRange) {
+                $discountPercent = 25;
+                $discountAmount = $subtotal * 0.25;
+            }
+            $total = $subtotal - $discountAmount;
+
             $status = $request->payment_method === 'cash' ? 'pending' : 'waiting_confirmation';
 
             $order = Order::create([
@@ -141,7 +172,9 @@ class OrderController extends Controller
                 'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
                 'status'         => $status,
                 'subtotal'       => $subtotal,
-                'total'          => $subtotal,
+                'discount_amount' => $discountAmount,
+                'discount_percent' => $discountPercent,
+                'total'          => $total,
                 'notes'          => $request->notes,
                 'customer_name'  => $user->name,
                 'payment_method' => $request->payment_method,
@@ -167,7 +200,7 @@ class OrderController extends Controller
             Cart::where('user_id', $user->id)->delete();
 
             DB::commit();
-            return response()->json($order->load('orderItems.menu', 'orderItems.variant'), 201);
+            return response()->json($order->load('orderItems.menu.category', 'orderItems.variant'), 201);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to create order', 'error' => $e->getMessage()], 500);
@@ -183,7 +216,7 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return response()->json($order->load(['orderItems.menu', 'orderItems.variant']));
+        return response()->json($order->load(['orderItems.menu.category', 'orderItems.variant']));
     }
 
     public function update(Request $request, $id)
@@ -200,7 +233,7 @@ class OrderController extends Controller
         if ($order->status === $request->status) {
             return response()->json([
                 'message' => 'Order status sudah ' . $order->status . ', tidak ada perubahan.',
-                'order'   => $order->load(['orderItems.menu', 'orderItems.variant']),
+                'order'   => $order->load(['orderItems.menu.category', 'orderItems.variant']),
             ]);
         }
 
@@ -260,7 +293,7 @@ class OrderController extends Controller
 
         return response()->json([
             'message' => 'Order status updated successfully',
-            'order'   => $order->load(['orderItems.menu', 'orderItems.variant'])
+            'order'   => $order->load(['orderItems.menu.category', 'orderItems.variant'])
         ]);
     }
 }

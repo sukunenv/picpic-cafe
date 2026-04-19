@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Category extends Model
 {
-    protected $fillable = ['name', 'slug', 'icon', 'image', 'is_active'];
+    protected $fillable = ['name', 'slug', 'icon', 'image', 'type', 'is_active'];
 
     public function menus()
     {
