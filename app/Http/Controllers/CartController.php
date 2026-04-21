@@ -71,6 +71,22 @@ class CartController extends Controller
         return response()->json($cart->load(['menu', 'variant']), 201);
     }
 
+    public function update(Request $request, Cart $cart)
+    {
+        if ($cart->user_id !== $request->user()->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'quantity' => 'sometimes|integer|min:1',
+            'notes'    => 'nullable|string',
+        ]);
+
+        $cart->update($request->only(['quantity', 'notes']));
+
+        return response()->json($cart->load(['menu', 'variant']));
+    }
+
     public function destroy(Cart $cart)
     {
         if ($cart->user_id !== auth()->id()) {

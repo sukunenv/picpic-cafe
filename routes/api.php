@@ -51,7 +51,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::delete('/cart/clear', [CartController::class, 'clear']);
-        Route::apiResource('/cart', CartController::class)->except(['show', 'update']);
+        Route::apiResource('/cart', CartController::class)->except(['show']);
 
         // Orders: semua staff boleh buat order (kasir), tapi hanya via admin app
         Route::apiResource('/orders', OrderController::class)->except(['destroy']);
