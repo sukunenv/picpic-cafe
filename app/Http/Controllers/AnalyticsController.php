@@ -90,7 +90,8 @@ class AnalyticsController extends Controller
     {
         $query = OrderItem::select('menus.name', DB::raw('SUM(order_items.quantity) as total_sold'), DB::raw('SUM(order_items.subtotal) as revenue'))
             ->join('orders', 'order_items.order_id', '=', 'orders.id')
-            ->join('menus', 'order_items.menu_id', '=', 'menus.id');
+            ->join('menus', 'order_items.menu_id', '=', 'menus.id')
+            ->whereIn('orders.status', ['completed']);
 
         $this->applyPeriodFilter($query, $request);
 
@@ -111,7 +112,8 @@ class AnalyticsController extends Controller
 
     public function paymentMethods(Request $request)
     {
-        $query = Order::select('payment_method as method', DB::raw('COUNT(*) as total'), DB::raw('SUM(total) as revenue'));
+        $query = Order::select('payment_method as method', DB::raw('COUNT(*) as total'), DB::raw('SUM(total) as revenue'))
+            ->whereIn('status', ['completed']);
         $this->applyPeriodFilter($query, $request);
 
         $paymentMethods = $query->groupBy('payment_method')

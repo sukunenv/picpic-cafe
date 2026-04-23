@@ -34,6 +34,10 @@ class OrderController extends Controller
         $perPage = $request->get('per_page', 10);
         $orders  = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
+        $orders->getCollection()->transform(function ($order) {
+            return $order->makeVisible(['discount_name', 'discount_amount']);
+        });
+
         return response()->json($orders);
     }
 
@@ -51,6 +55,8 @@ class OrderController extends Controller
             DB::beginTransaction();
             try {
                 $subtotal       = 0;
+                $totalDiscount  = 0;
+                $promoNames     = [];
                 $processedItems = [];
 
                 // SECURITY: Jangan percaya harga dari frontend. Ambil harga dari Database.
@@ -70,14 +76,30 @@ class OrderController extends Controller
                                               ->where('menu_id', $menu->id)
                                               ->firstOrFail();
 
-                        $itemPrice = $variant->price;
+                        $originalPrice = $variant->price;
                     } else {
-                        $itemPrice = $menu->price;
+                        $originalPrice = $menu->price;
+                    }
+
+                    $itemPrice = $originalPrice;
+                    $activePromo = $menu->activePromotions->first();
+                    
+                    if ($activePromo) {
+                        if ($activePromo->type === 'percent') {
+                            $itemPrice = $originalPrice * (1 - $activePromo->value / 100);
+                        } else {
+                            $itemPrice = max(0, $originalPrice - $activePromo->value);
+                        }
+                        
+                        if (!in_array($activePromo->name, $promoNames)) {
+                            $promoNames[] = $activePromo->name;
+                        }
                     }
 
                     $itemQty      = (int) $item['quantity'];
                     $itemSubtotal = $itemPrice * $itemQty;
-                    $subtotal    += $itemSubtotal;
+                    $subtotal    += ($originalPrice * $itemQty);
+                    $totalDiscount += (($originalPrice - $itemPrice) * $itemQty);
 
                     $processedItems[] = [
                         'menu_id'    => $menu->id,
@@ -89,29 +111,28 @@ class OrderController extends Controller
                     ];
                 }
 
+                /* 
+                // OLD HARDCODED SOFT OPENING LOGIC - DISABLED
                 $softOpeningStart = '2026-04-19';
                 $softOpeningEnd   = '2026-04-24';
                 $today = now()->toDateString();
                 $isSoftOpeningRange = ($today >= $softOpeningStart && $today <= $softOpeningEnd);
-
-                // If Kasir sends is_soft_opening=false explicitly, we can override, but default is auto
                 $applyDiscount = $request->get('is_soft_opening', $isSoftOpeningRange);
-
-                $discountAmount = 0;
-                $discountPercent = 0;
                 if ($applyDiscount) {
                     $discountPercent = 25;
                     $discountAmount = $subtotal * 0.25;
                 }
-                $total = $subtotal - $discountAmount;
+                */
+
+                $total = $subtotal - $totalDiscount;
 
                 $order = Order::create([
                     'user_id'        => $request->user_id ?? $user->id,
                     'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
                     'status'         => 'completed', // POS is directly completed
                     'subtotal'       => $subtotal,
-                    'discount_amount' => $discountAmount,
-                    'discount_percent' => $discountPercent,
+                    'discount_amount' => $totalDiscount,
+                    'discount_name'   => !empty($promoNames) ? implode(', ', $promoNames) : null,
                     'total'          => $total,
                     'notes'          => $request->notes,
                     'customer_name'  => $request->customer_name,
@@ -161,7 +182,7 @@ class OrderController extends Controller
         }
 
         // Regular cart-based mode - dipakai Member di Web
-        $carts = Cart::where('user_id', $user->id)->with(['menu', 'menu.variants', 'variant'])->get();
+        $carts = Cart::where('user_id', $user->id)->with(['menu', 'menu.variants', 'variant', 'menu.activePromotions'])->get();
 
         if ($carts->isEmpty()) {
             return response()->json(['message' => 'Cart is empty'], 400);
@@ -169,18 +190,39 @@ class OrderController extends Controller
 
         DB::beginTransaction();
         try {
-            $subtotal = 0;
+            $subtotal      = 0;
+            $totalDiscount = 0;
+            $promoNames    = [];
+
             foreach ($carts as $cart) {
                 // SECURITY: Gunakan harga dari model yang di-load dari DB, bukan input.
-                // Jika cart punya variant, ambil harga dari variant. Jika tidak, dari menu.
                 if ($cart->variant_id && $cart->variant) {
-                    $itemPrice = $cart->variant->price;
+                    $originalPrice = $cart->variant->price;
                 } else {
-                    $itemPrice = $cart->menu->price;
+                    $originalPrice = $cart->menu->price;
                 }
-                $subtotal += $itemPrice * $cart->quantity;
+
+                $itemPrice = $originalPrice;
+                $activePromo = $cart->menu->activePromotions->first();
+
+                if ($activePromo) {
+                    if ($activePromo->type === 'percent') {
+                        $itemPrice = $originalPrice * (1 - $activePromo->value / 100);
+                    } else {
+                        $itemPrice = max(0, $originalPrice - $activePromo->value);
+                    }
+                    
+                    if (!in_array($activePromo->name, $promoNames)) {
+                        $promoNames[] = $activePromo->name;
+                    }
+                }
+
+                $subtotal += ($originalPrice * $cart->quantity);
+                $totalDiscount += (($originalPrice - $itemPrice) * $cart->quantity);
             }
 
+            /*
+            // OLD HARDCODED SOFT OPENING LOGIC - DISABLED
             $softOpeningStart = '2026-04-19';
             $softOpeningEnd   = '2026-04-24';
             $today = now()->toDateString();
@@ -192,7 +234,9 @@ class OrderController extends Controller
                 $discountPercent = 25;
                 $discountAmount = $subtotal * 0.25;
             }
-            $total = $subtotal - $discountAmount;
+            */
+
+            $total = $subtotal - $totalDiscount;
 
             $status = $request->payment_method === 'cash' ? 'pending' : 'waiting_confirmation';
 
@@ -201,8 +245,8 @@ class OrderController extends Controller
                 'order_number'   => 'ORD-' . strtoupper(Str::random(10)),
                 'status'         => $status,
                 'subtotal'       => $subtotal,
-                'discount_amount' => $discountAmount,
-                'discount_percent' => $discountPercent,
+                'discount_amount' => $totalDiscount,
+                'discount_name'   => !empty($promoNames) ? implode(', ', $promoNames) : null,
                 'total'          => $total,
                 'notes'          => $request->notes,
                 'customer_name'  => $user->name,
@@ -211,9 +255,19 @@ class OrderController extends Controller
 
             foreach ($carts as $cart) {
                 if ($cart->variant_id && $cart->variant) {
-                    $itemPrice = $cart->variant->price;
+                    $originalPrice = $cart->variant->price;
                 } else {
-                    $itemPrice = $cart->menu->price;
+                    $originalPrice = $cart->menu->price;
+                }
+
+                $itemPrice = $originalPrice;
+                $activePromo = $cart->menu->activePromotions->first();
+                if ($activePromo) {
+                    if ($activePromo->type === 'percent') {
+                        $itemPrice = $originalPrice * (1 - $activePromo->value / 100);
+                    } else {
+                        $itemPrice = max(0, $originalPrice - $activePromo->value);
+                    }
                 }
 
                 $order->orderItems()->create([
@@ -245,7 +299,10 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return response()->json($order->load(['orderItems.menu.category', 'orderItems.variant', 'user']));
+        $order->load(['orderItems.menu.category', 'orderItems.variant', 'user']);
+        $order->makeVisible(['discount_name', 'discount_amount']);
+
+        return response()->json($order);
     }
 
     public function update(Request $request, $id)

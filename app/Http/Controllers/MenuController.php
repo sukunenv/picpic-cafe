@@ -12,27 +12,27 @@ class MenuController extends Controller
     public function index(Request $request)
     {
         try {
-            // If filters are applied, skip cache
-            if ($request->has('category_id') || $request->has('is_available')) {
-                $query = Menu::with(['category', 'variants']);
+            $query = Menu::with(['category', 'variants', 'activePromotions']);
 
-                if ($request->has('category_id')) {
-                    $query->where('category_id', $request->category_id);
-                }
-
-                if ($request->has('is_available')) {
-                    $query->where('is_available', $request->boolean('is_available'));
-                }
-
-                return response()->json($query->orderBy('created_at', 'desc')->get());
+            if ($request->has('category_id')) {
+                $query->where('category_id', $request->category_id);
             }
 
-            // Cache all menus for 5 minutes
-            $menus = Cache::remember('menus_all', 300, function () {
-                return Menu::with(['category', 'variants'])->orderBy('created_at', 'desc')->get();
-            });
+            if ($request->has('is_available')) {
+                $query->where('is_available', $request->boolean('is_available'));
+            }
 
-            return response()->json($menus);
+            // If filters are applied, skip cache
+            if ($request->has('category_id') || $request->has('is_available')) {
+                $menus = $query->orderBy('created_at', 'desc')->get();
+            } else {
+                // Cache all menus for 5 minutes
+                $menus = Cache::remember('menus_all', 300, function () {
+                    return Menu::with(['category', 'variants', 'activePromotions'])->orderBy('created_at', 'desc')->get();
+                });
+            }
+
+            return response()->json($menus->map(fn($m) => $this->transformMenu($m)));
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Gagal mengambil data menu',
@@ -44,13 +44,13 @@ class MenuController extends Controller
     public function featured()
     {
         try {
-            $menus = Menu::with(['category', 'variants'])
+            $menus = Menu::with(['category', 'variants', 'activePromotions'])
                 ->where('is_featured', 1)
                 ->where('is_available', 1)
                 ->whereNull('deleted_at')
                 ->get();
 
-            return response()->json($menus);
+            return response()->json($menus->map(fn($m) => $this->transformMenu($m)));
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Gagal mengambil menu populer',
@@ -62,23 +62,58 @@ class MenuController extends Controller
     public function show($id)
     {
         try {
-            $menu = Menu::with(['category', 'variants'])->where('id', $id)->first();
+            $menu = Menu::with(['category', 'variants', 'activePromotions'])->where('id', $id)->first();
 
             if (!$menu && !is_numeric($id)) {
-                $menu = Menu::with(['category', 'variants'])->where('slug', $id)->first();
+                $menu = Menu::with(['category', 'variants', 'activePromotions'])->where('slug', $id)->first();
             }
 
             if (!$menu) {
                 return response()->json(['message' => 'Menu tidak ditemukan'], 404);
             }
 
-            return response()->json(['data' => $menu]);
+            return response()->json(['data' => $this->transformMenu($menu)]);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Terjadi kesalahan sistem saat memuat menu',
                 'error'   => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function transformMenu($menu)
+    {
+        $activePromo = $menu->activePromotions->first();
+        
+        if ($activePromo) {
+            $price = $menu->price;
+            // Jika harga 0 (punya varian), gunakan harga varian termurah untuk simulasi promo di level menu
+            if ($price == 0 && $menu->variants->count() > 0) {
+                $price = $menu->variants->min('price');
+            }
+
+            $discountedPrice = $price;
+            if ($activePromo->type === 'percent') {
+                $discountedPrice = $price * (1 - $activePromo->value / 100);
+            } else {
+                $discountedPrice = max(0, $price - $activePromo->value);
+            }
+
+            $menu->promo = [
+                'name'             => $activePromo->name,
+                'type'             => $activePromo->type,
+                'value'            => (float) $activePromo->value,
+                'discounted_price' => (float) $discountedPrice
+            ];
+        } else {
+            $menu->promo = null;
+        }
+
+        // Sembunyikan relasi internal dari output JSON jika diperlukan, 
+        // atau biarkan saja jika frontend membutuhkannya.
+        // unset($menu->activePromotions); 
+
+        return $menu;
     }
 
     public function store(Request $request)
@@ -118,7 +153,7 @@ class MenuController extends Controller
         }
 
         Cache::forget('menus_all');
-        return response()->json($menu->load('variants'), 201);
+        return response()->json($this->transformMenu($menu->load('variants', 'activePromotions')), 201);
     }
 
     public function update(Request $request, $id)
@@ -168,7 +203,7 @@ class MenuController extends Controller
         }
 
         Cache::forget('menus_all');
-        return response()->json($menu->load('variants'));
+        return response()->json($this->transformMenu($menu->load('variants', 'activePromotions')));
     }
 
     public function destroy($id)
@@ -195,7 +230,7 @@ class MenuController extends Controller
     public function byCategory($slug)
     {
         try {
-            $menus = Menu::with(['category', 'variants'])
+            $menus = Menu::with(['category', 'variants', 'activePromotions'])
                 ->whereHas('category', function ($query) use ($slug) {
                     $query->where('name', $slug)
                           ->orWhere('slug', $slug);
@@ -204,7 +239,7 @@ class MenuController extends Controller
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            return response()->json($menus);
+            return response()->json($menus->map(fn($m) => $this->transformMenu($m)));
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Gagal memuat menu berdasarkan kategori',

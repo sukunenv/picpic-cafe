@@ -30,4 +30,12 @@ class Menu extends Model
     {
         return $this->hasMany(MenuVariant::class);
     }
+
+    public function activePromotions()
+    {
+        return $this->belongsToMany(Promotion::class, 'promotion_menus')
+            ->where('is_active', 1)
+            ->whereDate('start_date', '<=', now())
+            ->whereDate('end_date', '>=', now());
+    }
 }

@@ -12,6 +12,7 @@ use App\Http\Controllers\MemberController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\Admin\MemberSearchController;
+use App\Http\Controllers\PromotionController;
 
 Route::prefix('v1')->group(function () {
     // Public routes
@@ -88,6 +89,9 @@ Route::prefix('v1')->group(function () {
                 Route::get('/members/{id}', [MemberController::class, 'show']);
                 Route::put('/members/{id}/status', [MemberController::class, 'toggleStatus']);
                 Route::post('/members/{id}/reset-points', [MemberController::class, 'resetPoints']);
+
+                // Promotions
+                Route::apiResource('/promotions', PromotionController::class);
             });
         });
     });
