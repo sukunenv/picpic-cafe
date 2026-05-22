@@ -267,23 +267,6 @@ class AnalyticsController extends Controller
         return $pdf->download($filename);
     }
 
-    public function exportMonthly(Request $request)
-    {
-        // Auth manual — route ini diluar auth:sanctum
-        $token = $request->query('token');
-        if (!$token) {
-            return response()->json(['message' => 'Unauthorized'], 401);
-        }
-        $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-        if (!$pat) {
-            return response()->json(['message' => 'Unauthorized'], 401);
-        }
-        auth()->loginUsingId($pat->tokenable_id);
-
-        $period = $request->query('period', 'This Month');
-        $month = Carbon::now('Asia/Jakarta')->format('Y-m');
-        $filename = 'laporan-bulanan-' . $month . '.xlsx';
-        
-        return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\MonthlyReportExport($month, $period), $filename);
-    }
+    // exportMonthly temporarily disabled (maatwebsite/excel removed)
+    // public function exportMonthly(Request $request) { ... }
 }
