@@ -171,4 +171,27 @@ class AnalyticsController extends Controller
             'incomplete_orders'  => $incompleteOrders,
         ]);
     }
+
+    public function transactionHistory(Request $request)
+    {
+        $query = Order::select(
+            'id',
+            'order_number',
+            'customer_name',
+            'total',
+            'payment_method',
+            DB::raw("CONVERT_TZ(orders.created_at, '+00:00', '+07:00') as created_at")
+        )->where('status', 'completed');
+
+        $period = $request->get('period');
+        if ($period !== 'Semua' && $period !== 'all') {
+            $this->applyPeriodFilter($query, $request);
+        }
+
+        $transactions = $query->orderBy('orders.created_at', 'desc')
+            ->limit(500)
+            ->get();
+
+        return response()->json($transactions);
+    }
 }

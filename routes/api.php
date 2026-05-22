@@ -75,6 +75,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/top-menus', [AnalyticsController::class, 'topMenus']);
                 Route::get('/payment-methods', [AnalyticsController::class, 'paymentMethods']);
                 Route::get('/peak-hours', [AnalyticsController::class, 'peakHours']);
+                Route::get('/transactions', [AnalyticsController::class, 'transactionHistory']);
             });
 
             // Admin Panel
