@@ -13,7 +13,7 @@ class AnalyticsController extends Controller
     private function applyPeriodFilter($query, Request $request)
     {
         $period = $request->get('period', 'Today');
-        $now = Carbon::now();
+        $now = Carbon::now('Asia/Jakarta');
 
         // 2. Also constrain by day boundary
         if ($period === 'Today') {
@@ -54,8 +54,8 @@ class AnalyticsController extends Controller
         if ($period === 'Today') {
             // Hourly blocks for the full day to catch all orders
             for ($h = 0; $h <= 23; $h++) {
-                $start = Carbon::today()->setTime($h, 0, 0);
-                $end = Carbon::today()->setTime($h, 59, 59);
+                $start = Carbon::today('Asia/Jakarta')->setTime($h, 0, 0);
+                $end = Carbon::today('Asia/Jakarta')->setTime($h, 59, 59);
 
                 $revenue = Order::whereBetween('created_at', [$start, $end])->whereIn('status', $paidStatuses)->sum('total');
                 $orders = Order::whereBetween('created_at', [$start, $end])->count();
@@ -69,8 +69,8 @@ class AnalyticsController extends Controller
             // Daily blocks: 7 for Week, 30 for Month
             $days = ($period === 'This Month') ? 29 : 6;
             for ($i = $days; $i >= 0; $i--) {
-                $start = Carbon::today()->subDays($i)->startOfDay();
-                $end = Carbon::today()->subDays($i)->endOfDay();
+                $start = Carbon::today('Asia/Jakarta')->subDays($i)->startOfDay();
+                $end = Carbon::today('Asia/Jakarta')->subDays($i)->endOfDay();
 
                 $revenue = Order::whereBetween('created_at', [$start, $end])->whereIn('status', $paidStatuses)->sum('total');
                 $orders = Order::whereBetween('created_at', [$start, $end])->count();
@@ -153,7 +153,7 @@ class AnalyticsController extends Controller
 
     public function dashboardStats()
     {
-        $today = Carbon::today();
+        $today = Carbon::today('Asia/Jakarta');
 
         $totalOrdersToday = Order::whereDate('created_at', $today)->count();
         $pendingOrders    = Order::whereDate('created_at', $today)->where('status', 'pending')->count();
@@ -212,7 +212,7 @@ class AnalyticsController extends Controller
         $period = $request->query('period', 'Today');
         $skipFilter = ($period === 'Semua' || $period === 'all');
         $req = new Request(['period' => $period]);
-        $date = Carbon::today()->format('Y-m-d');
+        $date = Carbon::today('Asia/Jakarta')->format('Y-m-d');
 
         // Transactions
         $query = Order::select(
@@ -281,7 +281,7 @@ class AnalyticsController extends Controller
         auth()->loginUsingId($pat->tokenable_id);
 
         $period = $request->query('period', 'This Month');
-        $month = Carbon::now()->format('Y-m');
+        $month = Carbon::now('Asia/Jakarta')->format('Y-m');
         $filename = 'laporan-bulanan-' . $month . '.xlsx';
         
         return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\MonthlyReportExport($month, $period), $filename);
