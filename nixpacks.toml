@@ -1,0 +1,2 @@
+[variables]
+PHP_EXTENSIONS = "gd zip"
