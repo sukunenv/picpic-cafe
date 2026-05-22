@@ -76,6 +76,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/payment-methods', [AnalyticsController::class, 'paymentMethods']);
                 Route::get('/peak-hours', [AnalyticsController::class, 'peakHours']);
                 Route::get('/transactions', [AnalyticsController::class, 'transactionHistory']);
+
             });
 
             // Admin Panel
@@ -96,5 +97,10 @@ Route::prefix('v1')->group(function () {
             });
         });
     });
+
+    // Export routes — diluar auth:sanctum karena window.open tidak bisa kirim header
+    // Auth dihandle manual via query param token di controller
+    Route::get('analytics/export/daily', [AnalyticsController::class, 'exportDaily']);
+    Route::get('analytics/export/monthly', [AnalyticsController::class, 'exportMonthly']);
 });
 

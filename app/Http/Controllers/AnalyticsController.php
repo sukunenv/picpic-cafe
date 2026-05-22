@@ -194,4 +194,96 @@ class AnalyticsController extends Controller
 
         return response()->json($transactions);
     }
+
+    public function exportDaily(Request $request)
+    {
+        // Auth manual — route ini diluar auth:sanctum
+        $token = $request->query('token');
+        if (!$token) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+        if (!$pat) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        auth()->loginUsingId($pat->tokenable_id);
+
+        // Ambil period dari query param, default 'Today'
+        $period = $request->query('period', 'Today');
+        $skipFilter = ($period === 'Semua' || $period === 'all');
+        $req = new Request(['period' => $period]);
+        $date = Carbon::today()->format('Y-m-d');
+
+        // Transactions
+        $query = Order::select(
+            'id',
+            'order_number',
+            'customer_name',
+            'total',
+            'payment_method',
+            DB::raw("CONVERT_TZ(orders.created_at, '+00:00', '+07:00') as created_at")
+        )->where('status', 'completed');
+        if (!$skipFilter) {
+            $this->applyPeriodFilter($query, $req);
+        }
+        $transactions = $query->orderBy('orders.created_at', 'desc')->get();
+
+        $totalRevenue = $transactions->sum('total');
+        $totalOrders = $transactions->count();
+        $avgOrder = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
+
+        // Payment Methods
+        $paymentQuery = Order::select('payment_method as method', DB::raw('COUNT(*) as total'), DB::raw('SUM(total) as revenue'))
+            ->whereIn('status', ['completed']);
+        if (!$skipFilter) {
+            $this->applyPeriodFilter($paymentQuery, $req);
+        }
+        $paymentMethods = $paymentQuery->groupBy('payment_method')->get()->map(function($i) {
+            return ['method' => $i->method ?: 'Belum Dibayar', 'total' => $i->total, 'revenue' => $i->revenue];
+        })->toArray();
+
+        // Top Menus
+        $topMenuQuery = \App\Models\OrderItem::select('menus.name', DB::raw('SUM(order_items.quantity) as total_sold'), DB::raw('SUM(order_items.subtotal) as revenue'))
+            ->join('orders', 'order_items.order_id', '=', 'orders.id')
+            ->join('menus', 'order_items.menu_id', '=', 'menus.id')
+            ->whereIn('orders.status', ['completed']);
+        if (!$skipFilter) {
+            $this->applyPeriodFilter($topMenuQuery, $req);
+        }
+        $topMenus = $topMenuQuery->groupBy('menus.id', 'menus.name')
+            ->orderBy('total_sold', 'desc')->limit(5)->get()->toArray();
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('exports.daily-report', [
+            'transactions' => $transactions,
+            'date' => $date,
+            'totalRevenue' => $totalRevenue,
+            'totalOrders' => $totalOrders,
+            'avgOrder' => $avgOrder,
+            'paymentMethods' => $paymentMethods,
+            'topMenus' => $topMenus
+        ]);
+
+        $filename = 'laporan-harian-' . $date . '.pdf';
+        return $pdf->download($filename);
+    }
+
+    public function exportMonthly(Request $request)
+    {
+        // Auth manual — route ini diluar auth:sanctum
+        $token = $request->query('token');
+        if (!$token) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+        if (!$pat) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        auth()->loginUsingId($pat->tokenable_id);
+
+        $period = $request->query('period', 'This Month');
+        $month = Carbon::now()->format('Y-m');
+        $filename = 'laporan-bulanan-' . $month . '.xlsx';
+        
+        return \Maatwebsite\Excel\Facades\Excel::download(new \App\Exports\MonthlyReportExport($month, $period), $filename);
+    }
 }
