@@ -1,5 +1,9 @@
 FROM php:8.2-fpm
 
+RUN apt-get update && apt-get install -y tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Jakarta \
+       /etc/localtime \
+    && echo "Asia/Jakarta" > /etc/timezone
 RUN apt-get update && apt-get install -y \
     libgd-dev \
     libzip-dev \
