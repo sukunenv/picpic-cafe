@@ -76,6 +76,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('/payment-methods', [AnalyticsController::class, 'paymentMethods']);
                 Route::get('/peak-hours', [AnalyticsController::class, 'peakHours']);
                 Route::get('/transactions', [AnalyticsController::class, 'transactionHistory']);
+                Route::get('/monthly-revenue', [AnalyticsController::class, 'monthlyRevenue']);
 
             });
 

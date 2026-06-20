@@ -129,6 +129,52 @@ class AnalyticsController extends Controller
         return response()->json($paymentMethods);
     }
 
+    public function monthlyRevenue()
+    {
+        $now = Carbon::now('Asia/Jakarta');
+
+        // Bangun range 6 bulan: dari awal bulan ini mundur 5 bulan
+        $months = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $months[] = $now->copy()->subMonths($i)->startOfMonth();
+        }
+
+        // Ambil data dari DB — GROUP BY year & month (WIB)
+        $rows = Order::select(
+                DB::raw("YEAR(CONVERT_TZ(created_at, '+00:00', '+07:00')) as yr"),
+                DB::raw("MONTH(CONVERT_TZ(created_at, '+00:00', '+07:00')) as mo"),
+                DB::raw('SUM(total) as total_revenue'),
+                DB::raw("SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END) as cash_revenue"),
+                DB::raw("SUM(CASE WHEN payment_method = 'qris' THEN total ELSE 0 END) as qris_revenue"),
+                DB::raw("SUM(CASE WHEN payment_method = 'transfer' THEN total ELSE 0 END) as transfer_revenue"),
+                DB::raw('COUNT(id) as order_count')
+            )
+            ->where('status', 'completed')
+            ->where('created_at', '>=', $months[0]->copy()->setTimezone('UTC'))
+            ->groupBy('yr', 'mo')
+            ->get()
+            ->keyBy(fn($row) => $row->yr . '-' . str_pad($row->mo, 2, '0', STR_PAD_LEFT));
+
+        // Susun hasil — pastikan semua 6 bulan muncul meski revenue = 0
+        $result = [];
+        foreach ($months as $month) {
+            $key = $month->format('Y-m');
+            $label = $month->locale('en')->isoFormat('MMM YYYY'); // "Jan 2026"
+            $row = $rows->get($key);
+
+            $result[] = [
+                'month'    => $label,
+                'total'    => $row ? (float) $row->total_revenue    : 0,
+                'cash'     => $row ? (float) $row->cash_revenue     : 0,
+                'qris'     => $row ? (float) $row->qris_revenue     : 0,
+                'transfer' => $row ? (float) $row->transfer_revenue : 0,
+                'orders'   => $row ? (int)   $row->order_count      : 0,
+            ];
+        }
+
+        return response()->json($result);
+    }
+
     public function peakHours(Request $request)
     {
         $query = Order::select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as orders'));
